@@ -19,7 +19,6 @@ Elda Guadalupe Quiroga González
  Instituto Tecnológico y de Estudios Superiores de Monterrey
 
 </div>
-______________
 
 ## 1. Introducción
 Se describe el diseño de un micro-lenguaje imperativo procedural clásico, hecho con fines educativos en la aplicación de análisis léxico y sintáctico en la construcción de compiladores. El paradigma utilizado para el lenguaje es el imperativo donde se ejecuta una secuencia ordenada de instrucciones que permiten la manipulación de variables, evaluación de expresiones aritméticas y el control del flujo mediante estructuras básicas.
@@ -286,9 +285,6 @@ Características principales
 - Compatible con gramáticas EBNF.
 - Generación automática de AST.
 - Soporte para distintos algoritmos de parsing.
-
-Puedes comenzar la fase 1 con una introducción técnica y luego la sección de investigación/comparación de herramientas. Te dejo una redacción más formal y académica para Markdown.
-
 
 #### Comparación de Herramientas
 
