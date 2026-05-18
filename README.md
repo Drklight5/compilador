@@ -231,6 +231,390 @@ ___________
                      | ε
 ```
 
+## 4. Análisis Semántico
+
+El análisis semántico tiene como objetivo validar que las construcciones del programa tengan sentido lógico y respeten las reglas del lenguaje.
+En esta etapa se verifica:
+
+* Compatibilidad de tipos.
+* Variables declaradas previamente.
+* Variables duplicadas.
+* Existencia de funciones.
+* Compatibilidad de operaciones.
+* Manejo correcto de scopes (global y local).
+
+Para implementar esta etapa se diseñaron:
+
+1. Un **Cubo Semántico**.
+2. Un **Directorio de Funciones**.
+3. Una **Tabla de Variables por scope**.
+4. Validaciones semánticas integradas en el parser mediante puntos neurálgicos.
+
+
+
+### 4.1 Cubo Semántico
+
+El cubo semántico es una estructura que define qué operaciones son válidas entre tipos de datos y cuál es el tipo resultante.
+
+Se utiliza para validar:
+
+* Operaciones aritméticas.
+* Operaciones relacionales.
+* Asignaciones.
+* Compatibilidad de expresiones.
+
+Si una operación no es válida, el cubo devuelve el tipo `ERROR`.
+
+
+#### Tipos soportados
+
+El lenguaje soporta los siguientes tipos:
+
+| Tipo     |
+| -------- |
+| entero   |
+| flotante |
+| bool     |
+| string   |
+| nula     |
+
+#### Estructura utilizada
+
+Se implementó utilizando diccionarios hash (`dict`) anidados.
+
+```python
+semantic_cube = {
+    INT: {
+        '+': {
+            INT: INT,
+            FLOAT: FLOAT
+        }
+    }
+}
+```
+
+
+Se seleccionó un diccionario hash debido a:
+
+* Acceso rápido promedio O(1).
+* Facilidad de lectura y mantenimiento.
+* Representación directa de:
+
+  * tipo izquierdo
+  * operador
+  * tipo derecho
+* Escalabilidad para agregar nuevos operadores o tipos.
+
+
+#### Operaciones soportadas
+
+*Operadores aritméticos*
+
+| Operador |
+| -------- |
+| +        |
+| -        |
+| *        |
+| /        |
+
+*Operadores relacionales*
+
+| Operador |
+| -------- |
+| >        |
+| <        |
+| ==       |
+| !=       |
+
+*Asignación*
+
+| Operador |
+| -------- |
+| =        |
+
+
+
+*Función principal*
+
+```python
+get_result_type(
+    left_type,
+    operator,
+    right_type
+)
+```
+
+Esta función consulta el cubo semántico y devuelve:
+* tipo resultante
+* `TYPES.ERROR` si la operación es inválida
+
+
+### 4.2 Directorio de Funciones
+
+El Directorio de Funciones almacena toda la información semántica relacionada con las funciones declaradas en el programa.
+
+Cada función contiene:
+
+* Tipo de retorno.
+* Lista de parámetros.
+* Tabla de variables local.
+
+#### Estructura utilizada
+
+Se implementó utilizando un diccionario hash (`dict`).
+
+```python
+function_directory = {
+
+    'global': {
+        'return_type': None,
+        'params': [],
+        'variables': {}
+    },
+
+    'function name': {
+        'return_type': TYPES,
+        'params': [...],
+        'variables': {..}
+    }
+}
+```
+
+Se seleccionó un diccionario hash debido a:
+
+* Búsqueda rápida de funciones O(1).
+* Validación eficiente de funciones duplicadas.
+* Acceso sencillo a:
+
+  * parámetros
+  * variables locales
+  * tipo de retorno
+* Facilidad para implementar scopes.
+
+
+#### Operaciones principales
+
+*Crear función*
+
+```python
+create_function(
+    name,
+    return_type
+)
+```
+
+Inserta una nueva función en el directorio y valida que no exista previamente.
+
+*Obtener función*
+
+```python
+get_function(name)
+```
+
+Recupera la información semántica de una función.
+
+*Validar existencia*
+
+```python
+function_exists(name)
+```
+
+Verifica si una función ya fue declarada.
+
+### 4.3 Tabla de Variables
+
+Cada función contiene su propia tabla de variables.
+
+La tabla almacena:
+
+* nombre
+* tipo
+* valor
+* scope
+
+
+#### Estructura utilizada
+
+Se implementó utilizando un diccionario hash (`dict`). Ejemplo
+
+```python
+'variables': {
+
+    'a': {
+        'type': TYPES.INT,
+        'value': None,
+        'scope': 'global'
+    },
+
+    'b': {
+        'type': TYPES.FLOAT,
+        'value': None,
+        'scope': 'suma'
+    }
+}
+```
+Se seleccionó esta estructura debido a:
+
+* Inserción rápida.
+* Búsqueda eficiente O(1).
+* Validación inmediata de variables duplicadas.
+* Facilidad de acceso durante el análisis semántico.
+
+#### Operaciones principales
+
+*Agregar variable*
+
+```python
+add_variable(
+    name,
+    var_type
+)
+```
+
+Inserta una variable en el scope actual y valida duplicados.
+
+*Obtener variable*
+
+```python
+get_variable(name)
+```
+
+Busca una variable:
+
+1. En el scope local.
+2. En el scope global.
+
+*Asignar valor*
+
+```python
+set_variable_value(
+    name,
+    value,
+    var_type
+)
+```
+
+Valida compatibilidad de tipos antes de realizar la asignación.
+
+### 4.4 Manejo de Scopes
+
+El compilador implementa manejo de scopes para distinguir entre:
+
+* Variables globales.
+* Variables locales.
+
+*Scope actual*
+
+Se utiliza la variable: `self.current_scope` para indicar el contexto actual de compilación.
+
+*Resolución de variables*
+
+La búsqueda de variables sigue el siguiente orden:
+
+1. Scope local.
+2. Scope global.
+
+
+*Cambio de scope*
+
+Entrar a una función: `change_scope(scope_name)`
+Regresar al scope global: `reset_scope()`
+
+
+### 4.5 Puntos Neurálgicos
+
+Los puntos neurálgicos son acciones semánticas integradas dentro de las reglas del parser.
+
+Permiten ejecutar validaciones y llenar estructuras durante el análisis sintáctico.
+
+#### Funciones
+
+##### Creación de funciones
+
+Cuando el parser detecta una declaración de función:
+
+* Se crea una entrada en el Directorio de Funciones.
+* Se cambia el scope actual.
+
+
+##### Declaración de variables
+
+Durante el análisis de declaraciones:
+
+* Se insertan variables en la tabla correspondiente.
+* Se valida que no existan duplicados.
+
+
+##### Declaración de parámetros
+
+Los parámetros:
+
+* Se agregan a la lista de parámetros.
+* También se insertan como variables locales.
+
+
+##### Validación de expresiones
+
+Durante el análisis de expresiones:
+
+* Se consulta el cubo semántico.
+* Se valida compatibilidad de tipos.
+
+
+##### Validación de asignaciones
+
+Durante las asignaciones:
+
+* Se verifica compatibilidad entre:
+
+  * tipo variable
+  * tipo expresión
+
+
+### 4.6 Validaciones Semánticas Implementadas
+
+**Variables duplicadas**
+
+```text
+Variable "x" already declared
+```
+**Variables no declaradas**
+
+```text
+Variable "x" not declared
+```
+**Funciones duplicadas**
+
+```text
+Function "suma" already declared
+```
+
+**Funciones inexistentes**
+
+```text
+Function "suma" not declared
+```
+**Incompatibilidad de tipos**
+
+```text
+Type mismatch: entero + string
+```
+**Asignaciones inválidas**
+
+```text
+Cannot assign string to entero
+```
+
+*Complejidad de las estructuras*
+
+| Operación                | Complejidad   |
+| ------------------------ | ------------- |
+| Buscar variable          | O(1) promedio |
+| Insertar variable        | O(1) promedio |
+| Buscar función           | O(1) promedio |
+| Insertar función         | O(1) promedio |
+| Consultar cubo semántico | O(1) promedio |
+
 
 ## Herramientas de Generación de Compiladores
 
@@ -670,6 +1054,7 @@ Esta producción fue reutilizada en:
 
 ### 12. Construcción del AST
 
+ESTO HAY QUE CAMBIARLO
 El parser construye estructuras tipo AST utilizando tuplas de Python.
 
 Ejemplo:
@@ -1053,6 +1438,8 @@ fin
 | Precedencia de operadores     | Sí       |
 
 
+
+
 ## Declaración de Uso de Inteligencia Artificial
 
 Durante el desarrollo de esta entrega se utilizaron herramientas de Inteligencia Artificial como apoyo en tareas de documentación, validación y generación de casos de prueba. Su uso estuvo enfocado principalmente en la mejora del formato y redacción del documento en Markdown, la consulta de información técnica relacionada con la herramienta SLY (Sly Lex Yacc) y la generación de propuestas de casos de prueba orientados a cubrir distintos escenarios válidos y de error del lenguaje.
@@ -1060,3 +1447,5 @@ Durante el desarrollo de esta entrega se utilizaron herramientas de Inteligencia
 Adicionalmente, se utilizó asistencia de IA para verificar propiedades de la gramática diseñada, particularmente para la verficación de la recursividad izquierda, con el objetivo de asegurar compatibilidad con el parser implementado mediante SLY.
 
 La definición del lenguaje, las expresiones regulares, los tokens, las reglas gramaticales y las decisiones de diseño fueron desarrolladas y validadas por el autor.
+
+
