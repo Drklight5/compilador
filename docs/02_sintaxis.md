@@ -19,7 +19,7 @@
 ```bnf
 /* ─── PROGRAMA ─────────────────────────────────────────────── */
 
-<PROGRAMA> -> PROGRAMA ID DOS_PUNTOS <DECLARACIONES> INICIO <ESTATUTOS> FIN
+<PROGRAMA> -> PROGRAMA ID PUNTO_COMA <DECLARACIONES> INICIO <CUERPO> FIN
 
 /* ─── DECLARACIONES ─────────────────────────────────────────── */
 
@@ -43,7 +43,12 @@
          | ε
 
 <FUNCION> -> <TIPO_RETORNO> ID PAR_IZQ <PARAMS_OPC> PAR_DER
-             LLAVE_IZQ <VARS> <ESTATUTOS> LLAVE_DER PUNTO_COMA
+             LLAVE_IZQ <VARS> <CUERPO> LLAVE_DER PUNTO_COMA
+
+/* Nota: el cuerpo de la función usa doble llave: { <VARS> { <ESTATUTOS> } }
+   Esto es necesario para que el parser LR(1) pueda distinguir sin ambigüedad
+   entre una declaración de variable (ID : tipo ;) y un estatuto (ID = expr ;),
+   ya que ambos inician con ID y un lookahead de un token no es suficiente. */
 
 /* Renombrado de <RETORNO> a <TIPO_RETORNO> para mayor claridad */
 <TIPO_RETORNO> -> NULA

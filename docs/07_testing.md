@@ -42,10 +42,10 @@ Se desarrolló un conjunto de pruebas funcionales enfocadas en verificar:
 
 ## 7.3 Estructura de Archivos de Prueba
 
-Cada caso de prueba fue almacenado en archivos independientes con extensión `.pat` dentro de `patito/test` del repositorio.
+Cada caso de prueba fue almacenado en archivos independientes con extensión `.pat` dentro de `examples/` del repositorio.
 
 ```text
-/tests
+/examples
 │
 ├── test_01_minimo.pat
 ├── test_02_variables.pat
@@ -229,6 +229,8 @@ fin
 - Reconocimiento correcto de parámetros.
 - Reconocimiento correcto de variables locales.
 - Reconocimiento correcto de función nula.
+
+> **Nota de implementación:** Las funciones usan doble llave `{ vars ... { estatutos } }`. Las llaves externas delimitan el cuerpo completo de la función (vars + cuerpo); las internas delimitan los estatutos. Esto es necesario para evitar un conflicto LR(1) entre declaraciones de variables e instrucciones, que ambas inician con `ID`.
 
 ---
 

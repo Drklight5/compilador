@@ -70,7 +70,7 @@ haz
 si
 sino
 nula
-retorna
+regresa
 ```
 
 ---
@@ -110,7 +110,7 @@ Lista de tokens reconocidos por el lenguaje:
 | SI         | Palabra reservada `si`                 |
 | SINO       | Palabra reservada `sino`               |
 | NULA       | Palabra reservada `nula`               |
-| NULA       | Palabra reservada `retorna`               |
+| REGRESA    | Palabra reservada `regresa`               |
 
 ---
 
@@ -139,7 +139,7 @@ tokens = {
     CORCH_IZQ, CORCH_DER,
     PROGRAMA, VARS, INICIO, FIN,
     ENTERO, FLOTANTE, ESCRIBE,
-    MIENTRAS, HAZ, SI, SINO, NULA, RETORNA
+    MIENTRAS, HAZ, SI, SINO, NULA, REGRESA
 }
 ```
 
@@ -217,7 +217,7 @@ ID['si'] = SI
 ID['sino'] = SINO
 
 ID['nula'] = NULA
-ID['retorna'] = RETORNA
+ID['regresa'] = REGRESA
 ```
 
 ### Ignorados y errores

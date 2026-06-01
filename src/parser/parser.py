@@ -351,7 +351,7 @@ class PatitoParser(Parser):
         self.change_scope(p.ID)
         return (p.retorno, p.ID)
 
-    @_('funcion_cabecera PAR_IZQ params_opc PAR_DER LLAVE_IZQ vars estatutos LLAVE_DER PUNTO_COMA')
+    @_('funcion_cabecera PAR_IZQ params_opc PAR_DER LLAVE_IZQ vars cuerpo LLAVE_DER PUNTO_COMA')
     def funcion(self, p):
         ret_type, name = p.funcion_cabecera
         self.reset_scope()
@@ -362,7 +362,7 @@ class PatitoParser(Parser):
             children=[
                 p.params_opc,
                 p.vars,
-                p.estatutos
+                p.cuerpo
             ]
         )
  
