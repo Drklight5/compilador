@@ -1,6 +1,5 @@
 from sly import Lexer
 
-
 class PatitoLexer(Lexer):
 
     # -------------------------
@@ -51,7 +50,8 @@ class PatitoLexer(Lexer):
         SI,
         SINO,
 
-        NULA
+        NULA,
+        REGRESA
     }
 
     # -------------------------
@@ -107,6 +107,7 @@ class PatitoLexer(Lexer):
     ID['sino'] = SINO
 
     ID['nula'] = NULA
+    ID['regresa'] = REGRESA
 
     # -------------------------
     # CONSTANTES
