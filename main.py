@@ -1,7 +1,6 @@
 import sys
 import os
 
-# Agregar src/ al path para poder importar los módulos
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
 
 from lexico.lexer import PatitoLexer
@@ -9,67 +8,52 @@ from parser.parser import PatitoParser
 
 import glob
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 TESTS_DIR = os.path.join(BASE_DIR, 'examples')
 
 
 def ejecutar_prueba(archivo):
-
     print("\n==================================================")
-    print(f" Ejecutando: {archivo}")
+    print(f" Ejecutando: {os.path.basename(archivo)}")
     print("==================================================")
 
     try:
         with open(archivo, 'r', encoding='utf-8') as f:
             data = f.read()
-
     except FileNotFoundError:
         print(f"[ERROR] No se encontro el archivo: {archivo}")
         return
 
-    lexer = PatitoLexer()
+    lexer  = PatitoLexer()
     parser = PatitoParser()
 
-    # -------------------------------------------------
-    # ANALISIS LEXICO
-    # -------------------------------------------------
-
-    print("\n--- TOKENS ---")
-
+    # ── Análisis léxico ──────────────────────────────────────────────
     try:
         tokens = list(lexer.tokenize(data))
-
-        for token in tokens:
-            print(token)
-
     except Exception as e:
         print(f"[LEXER ERROR] {e}")
         return
 
-    # -------------------------------------------------
-    # ANALISIS SINTACTICO
-    # -------------------------------------------------
-
-    print("\n--- PARSER ---")
-
+    # ── Análisis sintáctico + semántico + cuádruplos ─────────────────
     try:
         resultado = parser.parse(iter(tokens))
 
         if resultado is None:
-            print("[PARSER ERROR] No se pudo generar el AST")
+            print("[PARSER ERROR] No se pudo compilar")
             return
-        else:
-            print("[OK] Compilacion exitosa")
 
-        print("\nAST:")
-        print(resultado)
+        print("[OK] Compilacion exitosa")
+
+        # Mostrar cuádruplos generados
+        if parser.qm.count() > 0:
+            print("\n--- CUADRUPLOS ---")
+            parser.qm.print_quadruples()
 
     except Exception as e:
         print(f"[PARSER ERROR] {e}")
 
 
 def main():
-
     if not os.path.exists(TESTS_DIR):
         print(f"[ERROR] No existe la carpeta '{TESTS_DIR}'")
         return

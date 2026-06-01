@@ -7,6 +7,7 @@ from lexico.lexer import PatitoLexer
 from semantic.semantic_cube import TYPES
 from semantic.function_directory import FunctionDirectory
 from semantic.semantic_actions import SemanticActions
+from intermediate.quadruple_manager import QuadrupleManager
 
 
 class PatitoParser(Parser):
@@ -15,54 +16,45 @@ class PatitoParser(Parser):
 
     def __init__(self):
         self.func_dir = FunctionDirectory()
-        self.actions = SemanticActions(self.func_dir)
+        self.actions  = SemanticActions(self.func_dir)
+        self.qm       = QuadrupleManager()
 
     # ------------------------------------------------------------------ #
     #  <PROGRAMA>                                                         #
     # ------------------------------------------------------------------ #
     @_('PROGRAMA ID PUNTO_COMA declaraciones INICIO cuerpo FIN')
     def programa(self, p):
-        return make_node(
-            'programa',
-            value=p.ID,
-            children=[p.declaraciones, p.cuerpo]
-        )
+        return ('programa', p.ID)
 
     # ------------------------------------------------------------------ #
     #  <DECLARACIONES>                                                    #
     # ------------------------------------------------------------------ #
     @_('vars funcs')
     def declaraciones(self, p):
-        return make_node('declaraciones', children=[p.vars, p.funcs])
+        pass
 
     # ------------------------------------------------------------------ #
     #  <VARS>                                                             #
     # ------------------------------------------------------------------ #
     @_('VARS lista_vars')
     def vars(self, p):
-        return make_node('vars', children=p.lista_vars)
+        pass
 
     @_('empty')
     def vars(self, p):
-        return make_node('vars')
+        pass
 
     # ------------------------------------------------------------------ #
     #  <LISTA_VARS>                                                       #
     # ------------------------------------------------------------------ #
     @_('ID lista_ids DOS_PUNTOS tipo PUNTO_COMA lista_vars')
     def lista_vars(self, p):
-        ids = [p.ID] + p.lista_ids
-        declarations = []
-        for var_name in ids:
+        for var_name in [p.ID] + p.lista_ids:
             self.actions.declare_variable(var_name, p.tipo)
-            declarations.append(
-                make_node('var_decl', node_type=p.tipo, value=var_name)
-            )
-        return declarations + p.lista_vars
 
     @_('empty')
     def lista_vars(self, p):
-        return []
+        pass
 
     # ------------------------------------------------------------------ #
     #  <LISTA_IDS>                                                        #
@@ -91,18 +83,15 @@ class PatitoParser(Parser):
     # ------------------------------------------------------------------ #
     @_('funcion funcs')
     def funcs(self, p):
-        return [p.funcion] + p.funcs
+        pass
 
     @_('empty')
     def funcs(self, p):
-        return []
+        pass
 
     # ------------------------------------------------------------------ #
     #  <FUNCION>                                                          #
     # ------------------------------------------------------------------ #
-
-    # Marcador: dispara enter_function + cambio de scope antes de parsear
-    # parámetros y cuerpo, para que ambos vean el scope correcto.
     @_('retorno ID')
     def funcion_cabecera(self, p):
         self.actions.enter_function(p.ID, p.retorno)
@@ -110,17 +99,10 @@ class PatitoParser(Parser):
 
     @_('funcion_cabecera PAR_IZQ params_opc PAR_DER LLAVE_IZQ vars cuerpo LLAVE_DER PUNTO_COMA')
     def funcion(self, p):
-        ret_type, name = p.funcion_cabecera
         self.actions.exit_function()
-        return make_node(
-            'function',
-            node_type=ret_type,
-            value=name,
-            children=[p.params_opc, p.vars, p.cuerpo]
-        )
 
     # ------------------------------------------------------------------ #
-    #  <RETORNO>  (tipo de retorno de función)                           #
+    #  <RETORNO>                                                          #
     # ------------------------------------------------------------------ #
     @_('NULA')
     def retorno(self, p):
@@ -166,18 +148,18 @@ class PatitoParser(Parser):
     # ------------------------------------------------------------------ #
     @_('LLAVE_IZQ estatutos LLAVE_DER')
     def cuerpo(self, p):
-        return make_node('body', children=p.estatutos)
+        pass
 
     # ------------------------------------------------------------------ #
     #  <ESTATUTOS>                                                        #
     # ------------------------------------------------------------------ #
     @_('estatuto estatutos')
     def estatutos(self, p):
-        return [p.estatuto] + p.estatutos
+        pass
 
     @_('empty')
     def estatutos(self, p):
-        return []
+        pass
 
     # ------------------------------------------------------------------ #
     #  <ESTATUTO>                                                         #
@@ -185,52 +167,55 @@ class PatitoParser(Parser):
     @_('ID estatuto_id')
     def estatuto(self, p):
         kind = p.estatuto_id[0] if isinstance(p.estatuto_id, tuple) else None
+
         if kind == 'asigna':
-            expr = p.estatuto_id[1]
+            # Operando y tipo de la expresión están en tope de las pilas
+            expr_type = self.qm.peek_type()
             var = self.actions.lookup_variable(p.ID)
-            self.actions.validate_assignment(var.type, expr['type'])
+            self.actions.validate_assignment(var.type, expr_type)
+            self.qm.emit_assignment(p.ID)
+
         elif kind == 'llamada_estat':
-            _, llamada = p.estatuto_id
-            _, args = llamada
-            arg_types = [a['type'] for a in args]
+            _, args = p.estatuto_id[1]   # args = lista de (operand, type)
+            arg_types = [t for _, t in args]
             self.actions.validate_call(p.ID, arg_types)
-        return ('estatuto_id', p.ID, p.estatuto_id)
+            # Fase 4: generar ERA / PARAM / GOSUB
 
     @_('condicion')
     def estatuto(self, p):
-        return p.condicion
+        pass
 
     @_('ciclo')
     def estatuto(self, p):
-        return p.ciclo
+        pass
 
     @_('imprime')
     def estatuto(self, p):
-        return p.imprime
+        pass
 
     @_('bloque')
     def estatuto(self, p):
-        return p.bloque
+        pass
 
     @_('retorna')
     def estatuto(self, p):
-        return p.retorna
+        pass
 
     # ------------------------------------------------------------------ #
-    #  <RETORNA>  (estatuto de retorno)                                  #
+    #  <RETORNA>                                                          #
     # ------------------------------------------------------------------ #
     @_('REGRESA retorna_valor PUNTO_COMA')
     def retorna(self, p):
-        expr_type = p.retorna_valor['type'] if p.retorna_valor else None
+        if p.retorna_valor is not None:
+            _, expr_type = self.qm.pop_operand()
+        else:
+            expr_type = None
         self.actions.validate_return(expr_type)
-        return make_node(
-            'retorna',
-            children=[p.retorna_valor] if p.retorna_valor else []
-        )
+        # Fase 4: emitir cuádruplo RETURN
 
     @_('expresion')
     def retorna_valor(self, p):
-        return p.expresion
+        return p.expresion   # nombre del operando (ya en pilas)
 
     @_('empty')
     def retorna_valor(self, p):
@@ -241,10 +226,10 @@ class PatitoParser(Parser):
     # ------------------------------------------------------------------ #
     @_('CORCH_IZQ estatutos CORCH_DER')
     def bloque(self, p):
-        return ('bloque', p.estatutos)
+        pass
 
     # ------------------------------------------------------------------ #
-    #  <ESTATUTO_ID>  — distingue asignación de llamada a función        #
+    #  <ESTATUTO_ID>                                                      #
     # ------------------------------------------------------------------ #
     @_('asigna')
     def estatuto_id(self, p):
@@ -259,59 +244,68 @@ class PatitoParser(Parser):
     # ------------------------------------------------------------------ #
     @_('OP_ASIG expresion PUNTO_COMA')
     def asigna(self, p):
+        # p.expresion es el nombre del operando; sigue en las pilas
         return ('asigna', p.expresion)
 
     # ------------------------------------------------------------------ #
-    #  <LLAMADA>  — se usa como expresión o como estatuto                #
+    #  <LLAMADA>                                                          #
     # ------------------------------------------------------------------ #
     @_('PAR_IZQ args_opc PAR_DER')
     def llamada(self, p):
-        return ('args', p.args_opc)
+        return ('args', p.args_opc)   # args_opc = lista de (operand, type)
 
     # ------------------------------------------------------------------ #
     #  <CONDICION>                                                        #
     # ------------------------------------------------------------------ #
     @_('SI PAR_IZQ expresion PAR_DER cuerpo sino_opc PUNTO_COMA')
     def condicion(self, p):
-        self.actions.validate_condition(p.expresion['type'])
-        return ('si', p.expresion, p.cuerpo, p.sino_opc)
+        cond_operand, cond_type = self.qm.pop_operand()
+        self.actions.validate_condition(cond_type)
+        # Fase 4: emitir GotoF
 
     # ------------------------------------------------------------------ #
     #  <SINO_OPC>                                                         #
     # ------------------------------------------------------------------ #
     @_('SINO cuerpo')
     def sino_opc(self, p):
-        return ('sino', p.cuerpo)
+        pass
 
     @_('empty')
     def sino_opc(self, p):
-        return None
+        pass
 
     # ------------------------------------------------------------------ #
     #  <CICLO>                                                            #
     # ------------------------------------------------------------------ #
     @_('MIENTRAS PAR_IZQ expresion PAR_DER HAZ cuerpo PUNTO_COMA')
     def ciclo(self, p):
-        self.actions.validate_condition(p.expresion['type'])
-        return ('mientras', p.expresion, p.cuerpo)
+        cond_operand, cond_type = self.qm.pop_operand()
+        self.actions.validate_condition(cond_type)
+        # Fase 4: emitir GotoF / Goto
 
     # ------------------------------------------------------------------ #
     #  <IMPRIME>                                                          #
     # ------------------------------------------------------------------ #
     @_('ESCRIBE PAR_IZQ lista_imp PAR_DER PUNTO_COMA')
     def imprime(self, p):
-        return ('escribe', p.lista_imp)
+        for item in p.lista_imp:
+            self.qm.emit('PRINT', item, None, None)
 
     # ------------------------------------------------------------------ #
     #  <LISTA_IMP>                                                        #
     # ------------------------------------------------------------------ #
+    # Con gramática derecha-recursiva, los items se procesan del más
+    # interno al más externo. Sacamos cada operando de la pila al reducir,
+    # de modo que al prepender construimos la lista en orden correcto.
+
     @_('LETRERO mas_imp')
     def lista_imp(self, p):
-        return [('letrero', p.LETRERO)] + p.mas_imp
+        return [p.LETRERO] + p.mas_imp
 
     @_('expresion mas_imp')
     def lista_imp(self, p):
-        return [p.expresion] + p.mas_imp
+        operand, _ = self.qm.pop_operand()
+        return [operand] + p.mas_imp
 
     # ------------------------------------------------------------------ #
     #  <MAS_IMP>                                                          #
@@ -338,16 +332,21 @@ class PatitoParser(Parser):
     # ------------------------------------------------------------------ #
     #  <LISTA_ARGS>                                                       #
     # ------------------------------------------------------------------ #
+    # Igual que lista_imp: sacamos de la pila al reducir para preservar
+    # el orden correcto con gramática derecha-recursiva.
+
     @_('expresion mas_args')
     def lista_args(self, p):
-        return [p.expresion] + p.mas_args
+        operand, op_type = self.qm.pop_operand()
+        return [(operand, op_type)] + p.mas_args
 
     # ------------------------------------------------------------------ #
     #  <MAS_ARGS>                                                         #
     # ------------------------------------------------------------------ #
     @_('COMA expresion mas_args')
     def mas_args(self, p):
-        return [p.expresion] + p.mas_args
+        operand, op_type = self.qm.pop_operand()
+        return [(operand, op_type)] + p.mas_args
 
     @_('empty')
     def mas_args(self, p):
@@ -367,125 +366,99 @@ class PatitoParser(Parser):
     def exp_rel(self, p):
         if p.exp_rel_prima is None:
             return p.exp_aditiva
-        op, derecha = p.exp_rel_prima
-        result_type = self.actions.validate_operation(
-            p.exp_aditiva['type'], op, derecha['type']
-        )
-        return make_node('rel_op', node_type=result_type, value=op,
-                         children=[p.exp_aditiva, derecha])
+        # p.exp_rel_prima es el operador relacional;
+        # ambos operandos ya están en las pilas
+        return self.qm.generate_operation(p.exp_rel_prima)
 
-    # ------------------------------------------------------------------ #
-    #  <EXP_REL_PRIMA>                                                    #
-    # ------------------------------------------------------------------ #
     @_('OP_REL exp_aditiva')
     def exp_rel_prima(self, p):
-        return (p.OP_REL, p.exp_aditiva)
+        return p.OP_REL   # el operando derecho ya está en las pilas
 
     @_('empty')
     def exp_rel_prima(self, p):
         return None
 
     # ------------------------------------------------------------------ #
-    #  <EXP_ADITIVA>                                                      #
+    #  <EXP_ADITIVA>  — gramática izquierda-recursiva                    #
     # ------------------------------------------------------------------ #
-    @_('termino exp_aditiva_prima')
+    @_('exp_aditiva OP_ADD termino')
     def exp_aditiva(self, p):
-        if p.exp_aditiva_prima is None:
-            return p.termino
-        op, derecha = p.exp_aditiva_prima
-        result_type = self.actions.validate_operation(
-            p.termino['type'], op, derecha['type']
-        )
-        return make_node('add_op', node_type=result_type, value=op,
-                         children=[p.termino, derecha])
+        return self.qm.generate_operation(p.OP_ADD)
+
+    @_('termino')
+    def exp_aditiva(self, p):
+        return p.termino
 
     # ------------------------------------------------------------------ #
-    #  <EXP_ADITIVA_PRIMA>                                                #
+    #  <TERMINO>  — gramática izquierda-recursiva                        #
     # ------------------------------------------------------------------ #
-    @_('OP_ADD termino exp_aditiva_prima')
-    def exp_aditiva_prima(self, p):
-        if p.exp_aditiva_prima is None:
-            return (p.OP_ADD, p.termino)
-        op2, derecha2 = p.exp_aditiva_prima
-        return (p.OP_ADD, ('op_add', op2, p.termino, derecha2))
-
-    @_('empty')
-    def exp_aditiva_prima(self, p):
-        return None
-
-    # ------------------------------------------------------------------ #
-    #  <TERMINO>                                                          #
-    # ------------------------------------------------------------------ #
-    @_('factor termino_prima')
+    @_('termino OP_MUL factor')
     def termino(self, p):
-        if p.termino_prima is None:
-            return p.factor
-        op, derecha = p.termino_prima
-        result_type = self.actions.validate_operation(
-            p.factor['type'], op, derecha['type']
-        )
-        return make_node('mul_op', node_type=result_type, value=op,
-                         children=[p.factor, derecha])
+        return self.qm.generate_operation(p.OP_MUL)
 
-    # ------------------------------------------------------------------ #
-    #  <TERMINO_PRIMA>                                                    #
-    # ------------------------------------------------------------------ #
-    @_('OP_MUL factor termino_prima')
-    def termino_prima(self, p):
-        if p.termino_prima is None:
-            return (p.OP_MUL, p.factor)
-        op2, derecha2 = p.termino_prima
-        return (p.OP_MUL, ('op_mul', op2, p.factor, derecha2))
-
-    @_('empty')
-    def termino_prima(self, p):
-        return None
+    @_('factor')
+    def termino(self, p):
+        return p.factor
 
     # ------------------------------------------------------------------ #
     #  <FACTOR>                                                           #
     # ------------------------------------------------------------------ #
     @_('PAR_IZQ expresion PAR_DER')
     def factor(self, p):
-        return make_node('group', node_type=p.expresion['type'],
-                         children=[p.expresion])
+        return p.expresion   # operando ya en pilas
 
     @_('OP_ADD factor')
     def factor(self, p):
-        return make_node('sign', node_type=p.factor['type'],
-                         value=p.OP_ADD, children=[p.factor])
+        if p.OP_ADD == '-':
+            operand, op_type = self.qm.pop_operand()
+            temp = self.qm.new_temp()
+            self.qm.emit('UMINUS', operand, None, temp)
+            self.qm.push_operand(temp, op_type)
+            return temp
+        return p.factor   # unario + es identidad
 
     @_('ID llamada_opc')
     def factor(self, p):
         if p.llamada_opc is None:
+            # Variable
             var = self.actions.lookup_variable(p.ID)
-            return make_node('id', node_type=var.type, value=p.ID)
+            self.qm.push_operand(p.ID, var.type)
+            return p.ID
+        # Llamada a función como expresión
         func = self.actions.lookup_function(p.ID)
-        arg_types = [a['type'] for a in p.llamada_opc]
+        arg_types = [t for _, t in p.llamada_opc]
         self.actions.validate_call(p.ID, arg_types)
-        return make_node('function_call', node_type=func.return_type,
-                         value=p.ID, children=p.llamada_opc)
+        # Fase 4: generar ERA / PARAM / GOSUB
+        # Por ahora empujamos un temporal como resultado
+        temp = self.qm.new_temp()
+        self.qm.push_operand(temp, func.return_type)
+        return temp
 
     @_('CTE_ENT')
     def factor(self, p):
-        return make_node('cte_int', node_type=TYPES.INT, value=int(p.CTE_ENT))
+        val = int(p.CTE_ENT)
+        self.qm.push_operand(str(val), TYPES.INT)
+        return str(val)
 
     @_('CTE_FLOT')
     def factor(self, p):
-        return make_node('cte_float', node_type=TYPES.FLOAT, value=float(p.CTE_FLOT))
+        val = float(p.CTE_FLOT)
+        self.qm.push_operand(str(val), TYPES.FLOAT)
+        return str(val)
 
     # ------------------------------------------------------------------ #
     #  <LLAMADA_OPC>                                                      #
     # ------------------------------------------------------------------ #
     @_('PAR_IZQ args_opc PAR_DER')
     def llamada_opc(self, p):
-        return p.args_opc
+        return p.args_opc   # lista de (operand, type)
 
     @_('empty')
     def llamada_opc(self, p):
         return None
 
     # ------------------------------------------------------------------ #
-    #  Producción vacía auxiliar                                          #
+    #  Producción vacía                                                   #
     # ------------------------------------------------------------------ #
     @_('')
     def empty(self, p):
@@ -498,26 +471,17 @@ class PatitoParser(Parser):
         if token:
             print(
                 f"[PARSER ERROR] Token inesperado '{token.value}' "
-                f"(tipo: {token.type}) en línea {token.lineno}"
+                f"(tipo: {token.type}) en linea {token.lineno}"
             )
         else:
             print("[PARSER ERROR] Fin de archivo inesperado")
 
 
-def make_node(node, node_type=None, value=None, children=None):
-    return {
-        'node': node,
-        'type': node_type,
-        'value': value,
-        'children': children or []
-    }
-
-
 def parse(source):
-    lexer = PatitoLexer()
+    lexer  = PatitoLexer()
     parser = PatitoParser()
     try:
-        tokens = lexer.tokenize(source)
-        return parser.parse(tokens)
+        return parser.parse(lexer.tokenize(source)), parser.qm
     except Exception as e:
         print(f'[SEMANTIC ERROR] {e}')
+        return None, None
