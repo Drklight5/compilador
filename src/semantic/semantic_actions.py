@@ -3,8 +3,9 @@ from .semantic_cube import get_result_type, TYPES
 
 
 class SemanticActions:
-    def __init__(self, func_dir):
+    def __init__(self, func_dir, vm):
         self.func_dir = func_dir
+        self.vm = vm
         self.current_scope = 'global'
 
     # ── Scope ─────────────────────────────────────────────────────────
@@ -12,8 +13,15 @@ class SemanticActions:
     def enter_function(self, name, return_type):
         if self.func_dir.exists(name):
             raise Exception(f'Function "{name}" already declared')
+        # Reinicia contadores locales y temporales para el nuevo scope
+        self.vm.reset_local()
+        self.vm.reset_temps()
         self.func_dir.add_function(name, return_type)
         self.current_scope = name
+        # Asignar dirección de retorno si la función no es nula
+        if return_type != TYPES.NULL:
+            ret_addr = self.vm.next_address('return', return_type)
+            self.func_dir.get_function(name).return_address = ret_addr
 
     def exit_function(self):
         self.current_scope = 'global'
@@ -21,10 +29,13 @@ class SemanticActions:
     # ── Variables y parámetros ────────────────────────────────────────
 
     def declare_variable(self, name, var_type):
-        self.func_dir.add_variable(self.current_scope, name, var_type)
+        segment = 'global' if self.current_scope == 'global' else 'local'
+        address = self.vm.next_address(segment, var_type, name=name)
+        self.func_dir.add_variable(self.current_scope, name, var_type, address=address)
 
     def declare_parameter(self, param_name, param_type):
-        self.func_dir.add_param(self.current_scope, param_name, param_type)
+        address = self.vm.next_address('local', param_type, name=param_name)
+        self.func_dir.add_param(self.current_scope, param_name, param_type, address=address)
 
     def lookup_variable(self, name):
         return self.func_dir.get_variable(self.current_scope, name)
@@ -41,17 +52,9 @@ class SemanticActions:
         if get_result_type(left_type, '=', right_type) == TYPES.ERROR:
             raise Exception(f'Cannot assign {right_type} to {left_type}')
 
-    def validate_operation(self, left_type, op, right_type):
-        result = get_result_type(left_type, op, right_type)
-        if result == TYPES.ERROR:
-            raise Exception(f'Type mismatch: {left_type} {op} {right_type}')
-        return result
-
     def validate_condition(self, expr_type):
         if expr_type != TYPES.BOOL:
-            raise Exception(
-                f'Condition must be boolean, got {expr_type}'
-            )
+            raise Exception(f'Condition must be boolean, got {expr_type}')
 
     # ── Validación de llamadas ────────────────────────────────────────
 

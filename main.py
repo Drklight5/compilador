@@ -27,15 +27,8 @@ def ejecutar_prueba(archivo):
     lexer  = PatitoLexer()
     parser = PatitoParser()
 
-    # ── Análisis léxico ──────────────────────────────────────────────
     try:
-        tokens = list(lexer.tokenize(data))
-    except Exception as e:
-        print(f"[LEXER ERROR] {e}")
-        return
-
-    # ── Análisis sintáctico + semántico + cuádruplos ─────────────────
-    try:
+        tokens    = list(lexer.tokenize(data))
         resultado = parser.parse(iter(tokens))
 
         if resultado is None:
@@ -44,10 +37,19 @@ def ejecutar_prueba(archivo):
 
         print("[OK] Compilacion exitosa")
 
-        # Mostrar cuádruplos generados
+        # ── Tabla de constantes ──────────────────────────────────────
+        consts = parser.vm.get_constants_table()
+        if consts:
+            print("\n--- CONSTANTES ---")
+            print(f"  {'DIR':<8} {'TIPO':<12} {'VALOR'}")
+            print("  " + "-" * 35)
+            for addr, tipo, val in consts:
+                print(f"  {addr:<8} {tipo:<12} {val}")
+
+        # ── Cuádruplos ───────────────────────────────────────────────
         if parser.qm.count() > 0:
             print("\n--- CUADRUPLOS ---")
-            parser.qm.print_quadruples()
+            parser.qm.print_quadruples(vm=parser.vm)
 
     except Exception as e:
         print(f"[PARSER ERROR] {e}")

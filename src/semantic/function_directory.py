@@ -15,7 +15,8 @@ class FunctionEntry:
         self.return_type = return_type
         self.params = []
         self.var_table = VariableTable()
-        self.start_address = start_address  # reservado para Fase 4
+        self.start_address = start_address   # índice del primer cuádruplo
+        self.return_address = None           # dirección virtual del valor de retorno
 
     def __repr__(self):
         return (
@@ -41,10 +42,10 @@ class FunctionDirectory:
     def exists(self, name):
         return name in self._dir
 
-    def add_param(self, func_name, param_name, param_type):
+    def add_param(self, func_name, param_name, param_type, address=None):
         entry = self.get_function(func_name)
         entry.params.append(ParamEntry(param_name, param_type))
-        entry.var_table.add(param_name, param_type)
+        entry.var_table.add(param_name, param_type, address=address)
 
     def add_variable(self, scope, name, var_type, address=None, value=None):
         self.get_function(scope).var_table.add(name, var_type, address, value)

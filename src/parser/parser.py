@@ -7,6 +7,7 @@ from lexico.lexer import PatitoLexer
 from semantic.semantic_cube import TYPES
 from semantic.function_directory import FunctionDirectory
 from semantic.semantic_actions import SemanticActions
+from intermediate.virtual_memory import VirtualMemory
 from intermediate.quadruple_manager import QuadrupleManager
 
 
@@ -15,16 +16,31 @@ class PatitoParser(Parser):
     tokens = PatitoLexer.tokens
 
     def __init__(self):
+        self.vm       = VirtualMemory()
         self.func_dir = FunctionDirectory()
-        self.actions  = SemanticActions(self.func_dir)
-        self.qm       = QuadrupleManager()
+        self.actions  = SemanticActions(self.func_dir, self.vm)
+        self.qm       = QuadrupleManager(self.vm)
+        # Cuádruplo 0: Goto al inicio del programa principal
+        # (saltará sobre las definiciones de funciones)
+        self.qm.emit('Goto', None, None, None)
 
     # ------------------------------------------------------------------ #
-    #  <PROGRAMA>                                                         #
+    #  <PROGRAMA>  — dividido en dos producciones para el backpatch       #
     # ------------------------------------------------------------------ #
-    @_('PROGRAMA ID PUNTO_COMA declaraciones INICIO cuerpo FIN')
+
+    # IMPORTANTE: esta producción debe ir PRIMERO para que SLY la tome
+    # como símbolo de inicio de la gramática.
+    @_('prog_inicio cuerpo FIN')
     def programa(self, p):
-        return ('programa', p.ID)
+        self.qm.emit('HALT', None, None, None)
+        return ('programa', p.prog_inicio)
+
+    # Marcador: consume hasta INICIO y hace el backpatch del Goto inicial
+    @_('PROGRAMA ID PUNTO_COMA declaraciones INICIO')
+    def prog_inicio(self, p):
+        self.qm.fill(0, self.qm.count())   # backpatch cuádruplo 0
+        self.vm.reset_temps()               # reiniciar temps para el main
+        return p.ID
 
     # ------------------------------------------------------------------ #
     #  <DECLARACIONES>                                                    #
@@ -95,10 +111,13 @@ class PatitoParser(Parser):
     @_('retorno ID')
     def funcion_cabecera(self, p):
         self.actions.enter_function(p.ID, p.retorno)
+        # Registrar start_address antes de compilar el cuerpo
+        self.func_dir.get_function(p.ID).start_address = self.qm.count()
         return (p.retorno, p.ID)
 
     @_('funcion_cabecera PAR_IZQ params_opc PAR_DER LLAVE_IZQ vars cuerpo LLAVE_DER PUNTO_COMA')
     def funcion(self, p):
+        self.qm.emit('ENDFUNC', None, None, None)
         self.actions.exit_function()
 
     # ------------------------------------------------------------------ #
@@ -169,17 +188,20 @@ class PatitoParser(Parser):
         kind = p.estatuto_id[0] if isinstance(p.estatuto_id, tuple) else None
 
         if kind == 'asigna':
-            # Operando y tipo de la expresión están en tope de las pilas
             expr_type = self.qm.peek_type()
             var = self.actions.lookup_variable(p.ID)
             self.actions.validate_assignment(var.type, expr_type)
-            self.qm.emit_assignment(p.ID)
+            self.qm.emit_assignment(var.address)
 
         elif kind == 'llamada_estat':
-            _, args = p.estatuto_id[1]   # args = lista de (operand, type)
-            arg_types = [t for _, t in args]
+            _, args_tuple = p.estatuto_id[1]    # ('args', [(addr,type),...])
+            arg_types = [t for _, t in args_tuple]
             self.actions.validate_call(p.ID, arg_types)
-            # Fase 4: generar ERA / PARAM / GOSUB
+            func = self.actions.lookup_function(p.ID)
+            self.qm.emit('ERA', p.ID, None, None)
+            for i, (arg_addr, _) in enumerate(args_tuple):
+                self.qm.emit('PARAM', arg_addr, None, i + 1)
+            self.qm.emit('GOSUB', p.ID, None, func.start_address)
 
     @_('condicion')
     def estatuto(self, p):
@@ -207,15 +229,17 @@ class PatitoParser(Parser):
     @_('REGRESA retorna_valor PUNTO_COMA')
     def retorna(self, p):
         if p.retorna_valor is not None:
-            _, expr_type = self.qm.pop_operand()
+            val_addr, expr_type = self.qm.pop_operand()
+            self.actions.validate_return(expr_type)
+            func = self.func_dir.get_function(self.actions.current_scope)
+            self.qm.emit('RETURN', val_addr, None, func.return_address)
         else:
-            expr_type = None
-        self.actions.validate_return(expr_type)
-        # Fase 4: emitir cuádruplo RETURN
+            self.actions.validate_return(None)
+            self.qm.emit('RETURN', None, None, None)
 
     @_('expresion')
     def retorna_valor(self, p):
-        return p.expresion   # nombre del operando (ya en pilas)
+        return p.expresion
 
     @_('empty')
     def retorna_valor(self, p):
@@ -244,7 +268,6 @@ class PatitoParser(Parser):
     # ------------------------------------------------------------------ #
     @_('OP_ASIG expresion PUNTO_COMA')
     def asigna(self, p):
-        # p.expresion es el nombre del operando; sigue en las pilas
         return ('asigna', p.expresion)
 
     # ------------------------------------------------------------------ #
@@ -252,36 +275,73 @@ class PatitoParser(Parser):
     # ------------------------------------------------------------------ #
     @_('PAR_IZQ args_opc PAR_DER')
     def llamada(self, p):
-        return ('args', p.args_opc)   # args_opc = lista de (operand, type)
+        return ('args', p.args_opc)
 
     # ------------------------------------------------------------------ #
-    #  <CONDICION>                                                        #
+    #  <CONDICION>  — marcadores para backpatch de saltos                 #
     # ------------------------------------------------------------------ #
-    @_('SI PAR_IZQ expresion PAR_DER cuerpo sino_opc PUNTO_COMA')
-    def condicion(self, p):
-        cond_operand, cond_type = self.qm.pop_operand()
+
+    # Marcador: después de evaluar la condición, emite GotoF pendiente
+    @_('SI PAR_IZQ expresion PAR_DER')
+    def si_cond(self, p):
+        cond_addr, cond_type = self.qm.pop_operand()
         self.actions.validate_condition(cond_type)
-        # Fase 4: emitir GotoF
+        idx = self.qm.count()
+        self.qm.emit('GotoF', cond_addr, None, None)   # destino pendiente
+        self.qm.jump_stack.push(idx)
+
+    @_('si_cond cuerpo sino_opc PUNTO_COMA')
+    def condicion(self, p):
+        pass
 
     # ------------------------------------------------------------------ #
     #  <SINO_OPC>                                                         #
     # ------------------------------------------------------------------ #
-    @_('SINO cuerpo')
+
+    # Marcador vacío: entre el bloque verdadero y el bloque sino
+    # Emite Goto (salto al final), hace backpatch del GotoF
+    @_('')
+    def sino_inicio(self, p):
+        goto_idx = self.qm.count()
+        self.qm.emit('Goto', None, None, None)          # saltar sobre sino
+        gotof_idx = self.qm.jump_stack.pop()
+        self.qm.fill(gotof_idx, self.qm.count())        # backpatch GotoF
+        self.qm.jump_stack.push(goto_idx)
+
+    @_('SINO sino_inicio cuerpo')
     def sino_opc(self, p):
-        pass
+        goto_idx = self.qm.jump_stack.pop()
+        self.qm.fill(goto_idx, self.qm.count())         # backpatch Goto
 
     @_('empty')
     def sino_opc(self, p):
-        pass
+        gotof_idx = self.qm.jump_stack.pop()
+        self.qm.fill(gotof_idx, self.qm.count())        # backpatch GotoF
 
     # ------------------------------------------------------------------ #
-    #  <CICLO>                                                            #
+    #  <CICLO>  — marcadores para backpatch                               #
     # ------------------------------------------------------------------ #
-    @_('MIENTRAS PAR_IZQ expresion PAR_DER HAZ cuerpo PUNTO_COMA')
-    def ciclo(self, p):
-        cond_operand, cond_type = self.qm.pop_operand()
+
+    # Marcador: antes de la condición, guarda el índice de inicio
+    @_('MIENTRAS')
+    def mientras_inicio(self, p):
+        self.qm.jump_stack.push(self.qm.count())        # índice de inicio
+
+    # Marcador: después de la condición, emite GotoF
+    @_('mientras_inicio PAR_IZQ expresion PAR_DER')
+    def mientras_cond(self, p):
+        cond_addr, cond_type = self.qm.pop_operand()
         self.actions.validate_condition(cond_type)
-        # Fase 4: emitir GotoF / Goto
+        idx = self.qm.count()
+        self.qm.emit('GotoF', cond_addr, None, None)    # destino pendiente
+        self.qm.jump_stack.push(idx)
+
+    @_('mientras_cond HAZ cuerpo PUNTO_COMA')
+    def ciclo(self, p):
+        gotof_idx  = self.qm.jump_stack.pop()
+        start_idx  = self.qm.jump_stack.pop()
+        self.qm.emit('Goto', None, None, start_idx)     # regresar al inicio
+        self.qm.fill(gotof_idx, self.qm.count())        # backpatch GotoF
 
     # ------------------------------------------------------------------ #
     #  <IMPRIME>                                                          #
@@ -294,13 +354,10 @@ class PatitoParser(Parser):
     # ------------------------------------------------------------------ #
     #  <LISTA_IMP>                                                        #
     # ------------------------------------------------------------------ #
-    # Con gramática derecha-recursiva, los items se procesan del más
-    # interno al más externo. Sacamos cada operando de la pila al reducir,
-    # de modo que al prepender construimos la lista en orden correcto.
-
     @_('LETRERO mas_imp')
     def lista_imp(self, p):
-        return [p.LETRERO] + p.mas_imp
+        addr = self.vm.get_constant(p.LETRERO, TYPES.STRING)
+        return [addr] + p.mas_imp
 
     @_('expresion mas_imp')
     def lista_imp(self, p):
@@ -332,9 +389,6 @@ class PatitoParser(Parser):
     # ------------------------------------------------------------------ #
     #  <LISTA_ARGS>                                                       #
     # ------------------------------------------------------------------ #
-    # Igual que lista_imp: sacamos de la pila al reducir para preservar
-    # el orden correcto con gramática derecha-recursiva.
-
     @_('expresion mas_args')
     def lista_args(self, p):
         operand, op_type = self.qm.pop_operand()
@@ -366,20 +420,18 @@ class PatitoParser(Parser):
     def exp_rel(self, p):
         if p.exp_rel_prima is None:
             return p.exp_aditiva
-        # p.exp_rel_prima es el operador relacional;
-        # ambos operandos ya están en las pilas
         return self.qm.generate_operation(p.exp_rel_prima)
 
     @_('OP_REL exp_aditiva')
     def exp_rel_prima(self, p):
-        return p.OP_REL   # el operando derecho ya está en las pilas
+        return p.OP_REL
 
     @_('empty')
     def exp_rel_prima(self, p):
         return None
 
     # ------------------------------------------------------------------ #
-    #  <EXP_ADITIVA>  — gramática izquierda-recursiva                    #
+    #  <EXP_ADITIVA>  — izquierda-recursiva                              #
     # ------------------------------------------------------------------ #
     @_('exp_aditiva OP_ADD termino')
     def exp_aditiva(self, p):
@@ -390,7 +442,7 @@ class PatitoParser(Parser):
         return p.termino
 
     # ------------------------------------------------------------------ #
-    #  <TERMINO>  — gramática izquierda-recursiva                        #
+    #  <TERMINO>  — izquierda-recursiva                                  #
     # ------------------------------------------------------------------ #
     @_('termino OP_MUL factor')
     def termino(self, p):
@@ -405,53 +457,61 @@ class PatitoParser(Parser):
     # ------------------------------------------------------------------ #
     @_('PAR_IZQ expresion PAR_DER')
     def factor(self, p):
-        return p.expresion   # operando ya en pilas
+        return p.expresion
 
     @_('OP_ADD factor')
     def factor(self, p):
         if p.OP_ADD == '-':
             operand, op_type = self.qm.pop_operand()
-            temp = self.qm.new_temp()
+            temp = self.qm.new_temp(op_type)
             self.qm.emit('UMINUS', operand, None, temp)
             self.qm.push_operand(temp, op_type)
             return temp
-        return p.factor   # unario + es identidad
+        return p.factor
 
     @_('ID llamada_opc')
     def factor(self, p):
         if p.llamada_opc is None:
-            # Variable
             var = self.actions.lookup_variable(p.ID)
-            self.qm.push_operand(p.ID, var.type)
-            return p.ID
+            self.qm.push_operand(var.address, var.type)
+            return var.address
+
         # Llamada a función como expresión
         func = self.actions.lookup_function(p.ID)
         arg_types = [t for _, t in p.llamada_opc]
         self.actions.validate_call(p.ID, arg_types)
-        # Fase 4: generar ERA / PARAM / GOSUB
-        # Por ahora empujamos un temporal como resultado
-        temp = self.qm.new_temp()
+
+        self.qm.emit('ERA', p.ID, None, None)
+        for i, (arg_addr, _) in enumerate(p.llamada_opc):
+            self.qm.emit('PARAM', arg_addr, None, i + 1)
+        self.qm.emit('GOSUB', p.ID, None, func.start_address)
+
+        # Temporal para recoger el valor de retorno
+        temp = self.qm.new_temp(func.return_type)
+        self.qm.emit('=', func.return_address, None, temp)
         self.qm.push_operand(temp, func.return_type)
         return temp
 
     @_('CTE_ENT')
     def factor(self, p):
-        val = int(p.CTE_ENT)
-        self.qm.push_operand(str(val), TYPES.INT)
-        return str(val)
+        val  = int(p.CTE_ENT)
+        addr = self.vm.get_constant(val, TYPES.INT)
+        self.qm.push_operand(addr, TYPES.INT)
+        return addr
 
     @_('CTE_FLOT')
     def factor(self, p):
-        val = float(p.CTE_FLOT)
-        self.qm.push_operand(str(val), TYPES.FLOAT)
-        return str(val)
+        val  = float(p.CTE_FLOT)
+        addr = self.vm.get_constant(val, TYPES.FLOAT)
+        self.qm.push_operand(addr, TYPES.FLOAT)
+        return addr
 
     # ------------------------------------------------------------------ #
     #  <LLAMADA_OPC>                                                      #
     # ------------------------------------------------------------------ #
     @_('PAR_IZQ args_opc PAR_DER')
     def llamada_opc(self, p):
-        return p.args_opc   # lista de (operand, type)
+        return p.args_opc
 
     @_('empty')
     def llamada_opc(self, p):
@@ -481,7 +541,8 @@ def parse(source):
     lexer  = PatitoLexer()
     parser = PatitoParser()
     try:
-        return parser.parse(lexer.tokenize(source)), parser.qm
+        result = parser.parse(lexer.tokenize(source))
+        return result, parser
     except Exception as e:
         print(f'[SEMANTIC ERROR] {e}')
         return None, None
