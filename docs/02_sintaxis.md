@@ -125,20 +125,20 @@
 
 /* ─── EXPRESIONES ────────────────────────────────────────────── */
 
-<EXPRESION> -> <EXP_ADITIVA> <EXP_REL_PRIMA>
+<EXPRESION> -> <EXP_REL>
+
+<EXP_REL> -> <EXP_ADITIVA> <EXP_REL_PRIMA>
 
 <EXP_REL_PRIMA> -> OP_REL <EXP_ADITIVA>
                  | ε
 
-<EXP_ADITIVA> -> <TERMINO> <EXP_ADITIVA_PRIMA>
+/* Gramática izquierda-recursiva para asociatividad izquierda    */
+/* Garantiza que  a - b - c  genere  (a-b) - c  y no  a - (b-c) */
+<EXP_ADITIVA> -> <EXP_ADITIVA> OP_ADD <TERMINO>
+               | <TERMINO>
 
-<EXP_ADITIVA_PRIMA> -> OP_ADD <TERMINO> <EXP_ADITIVA_PRIMA>
-                     | ε
-
-<TERMINO> -> <FACTOR> <TERMINO_PRIMA>
-
-<TERMINO_PRIMA> -> OP_MUL <FACTOR> <TERMINO_PRIMA>
-                 | ε
+<TERMINO> -> <TERMINO> OP_MUL <FACTOR>
+           | <FACTOR>
 
 /* OP_ADD como prefijo unario (signo negativo / positivo)        */
 <FACTOR> -> PAR_IZQ <EXPRESION> PAR_DER
@@ -153,24 +153,40 @@
 
 ---
 
-## 2.2 Implementación del Parser en SLY (referencia)
+## 2.2 Nonterminals marcadores (para generación de código)
 
-### Clase base
+A partir de Fase 3/4, se añaden nonterminals auxiliares que permiten
+ejecutar acciones semánticas **en el momento correcto** dentro de la
+reducción bottom-up del parser LR(1).
+
+| Marcador | Dónde se reduce | Acción |
+|---|---|---|
+| `prog_inicio` | Antes del `cuerpo` principal | Backpatch del `Goto` inicial; reset de temporales |
+| `funcion_cabecera` | Antes de parámetros y cuerpo | `enter_function()`, registra `start_address` |
+| `si_cond` | Después de evaluar condición de `si` | Emite `GotoF` pendiente, push a `JumpStack` |
+| `sino_inicio` | Entre bloque verdadero y `sino` | Emite `Goto` pendiente, backpatch `GotoF` |
+| `mientras_inicio` | Antes de evaluar condición del ciclo | Push índice de inicio a `JumpStack` |
+| `mientras_cond` | Después de evaluar condición del ciclo | Emite `GotoF` pendiente, push a `JumpStack` |
+
+### Ejemplo de producción con marcador
 
 ```python
-from sly import Parser
+# prog_inicio se reduce cuando el parser ve INICIO,
+# antes de parsear el cuerpo del programa.
+@_('PROGRAMA ID PUNTO_COMA declaraciones INICIO')
+def prog_inicio(self, p):
+    self.qm.fill(0, self.qm.count())   # backpatch Goto inicial
+    self.vm.reset_temps()
+    return p.ID
 
-class PatitoParser(Parser):
-    pass
-```
-
-### Ejemplo de producción
-
-```python
-@_('PROGRAMA ID PUNTO_COMA declaraciones INICIO cuerpo FIN')
+@_('prog_inicio cuerpo FIN')
 def programa(self, p):
-    return ('programa', p.ID, p.declaraciones, p.cuerpo)
+    self.qm.emit('HALT', None, None, None)
+    return ('programa', p.prog_inicio)
 ```
+
+> **Nota:** `programa` debe ser la **primera** producción definida en la
+> clase para que SLY la tome como símbolo de inicio de la gramática.
 
 ### Producciones vacías
 

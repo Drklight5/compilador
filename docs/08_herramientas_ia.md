@@ -16,7 +16,7 @@
 
 ## 8.1 Declaración de uso de IA
 
-Durante el desarrollo de este proyecto se utilizó **Claude Sonnet 4.6** (Anthropic) como asistente principal mediante la interfaz **Claude Code CLI**. La IA funcionó como un colaborador técnico activo: no solo respondió preguntas sino que leyó el código existente, propuso cambios, los aplicó directamente sobre los archivos y explicó las decisiones tomadas.
+Durante el desarrollo de este proyecto se utilizó **Claude Sonnet 4.6** (Anthropic) como asistente principal mediante la interfaz **Claude Code CLI**. La IA funcionó como un colaborador técnico activo: leyó el código existente, propuso cambios, los aplicó directamente sobre los archivos, explicó las decisiones tomadas y diagnosticó errores.
 
 ---
 
@@ -31,109 +31,123 @@ Durante el desarrollo de este proyecto se utilizó **Claude Sonnet 4.6** (Anthro
 - *"Según lo que ves en mi código, en qué etapa se encuentra completamente cumplida"*
 
 **Lo que hizo la IA:**
-- Recorrió la estructura completa del repositorio (`src/`, `docs/`, `examples/`, `patito/`)
-- Leyó `patito/lexer.py`, `patito/parser.py`, `src/parser/parser.py`, `src/lexico/lexer.py`, `src/semantic/semantic_cube.py` y todos los docs
-- Identificó el estado real de cada fase:
-  - Fase 0: completa
-  - Fase 1: ~85% — bug de scope en funciones bloqueaba tests 06 y 07
-  - Fase 2: ~55% — cubo semántico funcional pero scope roto y módulos `src/semantic/` vacíos
-  - Fases 3–5: no iniciadas
-- Detectó el bug crítico: `self.functions[p.ID]` en la producción `funcion` referenciaba una variable inexistente (debía ser `create_function()`)
+- Recorrió la estructura completa del repositorio (`src/`, `docs/`, `examples/`)
+- Identificó el estado real de cada fase (0: completa, 1: ~85%, 2: ~55%, 3–5: no iniciadas)
+- Detectó el bug crítico: `self.functions[p.ID]` en la producción `funcion` referenciaba una variable inexistente
 
 **Decisiones tomadas por el autor:** El diagnóstico fue revisado y validado antes de proceder.
 
 ---
 
-### Sesión 2 — Implementación del token y estatuto `regresa`
-
-**Contexto:** Se había modificado `docs/02_sintaxis.md` para agregar la producción `<RETORNA>` a la gramática. Se solicitó aplicar ese cambio al código.
+### Sesión 2 — Token y estatuto `regresa`
 
 **Prompts utilizados:**
-- *"Acabo de modificar el archivo docs/02_sintaxis.md para agregar un retorno a las expresiones [...] lo único que tendría que hacer es agregar esto a mi parser y otros documentos necesarios"*
-- *"Si, haz los cambios"*
+- *"Acabo de modificar docs/02_sintaxis.md para agregar un retorno [...] lo único que tendría que hacer es agregar esto a mi parser"*
 
 **Lo que hizo la IA:**
-
-En `patito/lexer.py` y `src/lexico/lexer.py`:
-- Agregó `REGRESA` al conjunto de tokens
-- Mapeó la palabra reservada `'regresa'` → `REGRESA`
-
-En `patito/parser.py` y `src/parser/parser.py`:
-- Agregó el caso `retorna` en la regla `estatuto`
-- Agregó producciones `retorna` y `retorna_valor`:
-  ```python
-  @_('REGRESA retorna_valor PUNTO_COMA')
-  def retorna(self, p): ...
-
-  @_('expresion')
-  def retorna_valor(self, p): ...
-
-  @_('empty')
-  def retorna_valor(self, p): ...
-  ```
-- Corrigió el bug `self.functions[p.ID]` → `self.create_function(p.ID, p.retorno)`
-
-**Decisiones tomadas por el autor:** Se aprobó explícitamente cada cambio antes de aplicarlo.
+- Agregó `REGRESA` al lexer (`src/lexico/lexer.py`)
+- Agregó producciones `retorna` y `retorna_valor` al parser
+- Corrigió el bug `self.functions[p.ID]` → `create_function()`
 
 ---
 
-### Sesión 3 — Migración a `src/` y actualización de `main.py`
-
-**Contexto:** Los cambios anteriores se habían aplicado a `patito/`. Se solicitó replicarlos en `src/` y hacer funcionar `main.py` desde la raíz.
+### Sesión 3 — Migración a `src/` y `main.py`
 
 **Prompts utilizados:**
-- *"Vuelve a aplicar los cambios pero a los archivos dentro de src y actualiza el main.py en el root para que funciones"*
+- *"Vuelve a aplicar los cambios pero a los archivos dentro de src y actualiza el main.py en el root"*
 
 **Lo que hizo la IA:**
-- Corrigió los imports de `src/parser/parser.py` (de `from lexer import` a `from lexico.lexer import` y `from semantic.semantic_cube import`) usando `sys.path`
-- Reescribió `main.py` para importar desde `src/` y apuntar a `examples/` como directorio de tests
-- Descubrió que los archivos `.pat` estaban en `examples/`, no en `patito/tests/`
-- Verificó que 8/10 tests pasaran correctamente (06 y 07 fallaban por el bug de scope, que era preexistente)
+- Corrigió imports en `src/parser/parser.py` usando `sys.path`
+- Reescribió `main.py` para importar desde `src/` y apuntar a `examples/`
 
 ---
 
-### Sesión 4 — Completar Fase 1: fix de scope en funciones
-
-**Contexto:** Se solicitó completar la Fase 1. La IA identificó que el único blocker era el bug de scope en la producción `funcion`.
+### Sesión 4 — Fase 1 completa: fix de scope en funciones
 
 **Prompts utilizados:**
-- *"¿Qué información necesitas que te brinde para completar la fase 1?"*
-- *"¿Cómo debe ser la estructura de una función en Patito?"* → El autor eligió **llaves simples**
-- *"Si"* (confirmar los cambios)
+- *"¿Qué información necesitas para completar la fase 1?"*
+- *"¿Cómo debe ser la estructura de una función?"* → autor eligió llaves simples
+- *"Si"*
 
 **Lo que hizo la IA:**
+- Introdujo el nonterminal marcador `funcion_cabecera` que dispara `enter_function` + cambio de scope antes de parsear parámetros y cuerpo
+- Diagnosticó el conflicto LR(1) con llaves simples: `lista_vars` y `estatutos` ambos inician con `ID`, el parser no puede distinguirlos con un solo token de lookahead
+- Mantuvo la doble llave para cuerpos de función como solución al conflicto
 
-Intentó implementar llaves simples (`LLAVE_IZQ vars estatutos LLAVE_DER`) usando un nonterminal marcador `funcion_cabecera`:
-
-```python
-@_('retorno ID')
-def funcion_cabecera(self, p):
-    self.create_function(p.ID, p.retorno)
-    self.change_scope(p.ID)
-    return (p.retorno, p.ID)
-```
-
-Y movió `add_parameter` a `lista_params` / `mas_params` para que los parámetros se registraran en el scope correcto.
-
-Diagnosticó que las llaves simples generan un **conflicto LR(1) estructural**: `lista_vars` y `estatutos` ambos inician con `ID`, y con un solo token de lookahead el parser no puede distinguir `y : entero;` (declaración) de `y = x;` (estatuto). Por esta razón se mantuvo la **doble llave** para cuerpos de función.
-
-**Resultado:** 10/10 tests con comportamiento correcto (8 válidos pasan, 2 inválidos reportan error esperado).
-
-**Decisiones tomadas por el autor:** El autor eligió inicialmente llaves simples; al conocer la restricción LR(1), confirmó el uso de doble llave.
+**Decisiones tomadas por el autor:** Confirmó el uso de doble llave al conocer la restricción técnica.
 
 ---
 
-### Sesión 5 — Corrección de documentación
+### Sesión 5 — Corrección de documentación (Fase 1)
 
 **Prompts utilizados:**
 - *"Actualiza los archivos docs pertinentes"*
-- *"Gracias, actualiza los docs 8 uso de IA, con lo que has hecho conmigo hasta ahorita"*
 
 **Lo que hizo la IA:**
-- `docs/01_lexico.md`: corrigió token `retorna`/`NULA`/`RETORNA` → `regresa`/`REGRESA` en 4 lugares
-- `docs/02_sintaxis.md`: corrigió `DOS_PUNTOS` → `PUNTO_COMA` en la producción `PROGRAMA`; `<ESTATUTOS>` → `<CUERPO>`; agregó nota sobre la doble llave y el conflicto LR(1)
-- `docs/07_testing.md`: corrigió ruta `patito/test` → `examples/`; agregó nota de implementación sobre doble llave en test 06
-- `docs/08_herramientas_ia.md`: este documento (registro completo de sesiones)
+- `docs/01_lexico.md`: corrigió `retorna`/`NULA`/`RETORNA` → `regresa`/`REGRESA`
+- `docs/02_sintaxis.md`: corrigió `DOS_PUNTOS` → `PUNTO_COMA`; nota sobre la doble llave
+- `docs/07_testing.md`: corrigió ruta de tests; tabla de status
+
+---
+
+### Sesión 6 — Fase 2: módulos semánticos separados
+
+**Prompts utilizados:**
+- *"Vamos con la Fase 2, dime qué tenemos que hacer"*
+- *"¿Qué tipo de estructuras me recomiendas para variable table y function directory?"*
+- *"Si"* (confirmar implementación)
+
+**Lo que hizo la IA:**
+- Propuso arquitectura: una `VariableTable` por scope, `FunctionDirectory` como dict, `SemanticActions` como fachada
+- Creó `src/semantic/variable_table.py`, `function_directory.py`, `semantic_actions.py`
+- Extrajo toda la lógica semántica del parser hacia los módulos separados
+- Implementó 4 validaciones nuevas: conteo de argumentos, tipos de argumentos, tipo de `regresa`, `regresa` fuera de función
+- Creó 12 tests semánticos (3 válidos + 9 de error, uno por validación)
+
+**Decisiones tomadas por el autor:** Eligió la arquitectura de módulos separados; aprobó las validaciones a implementar.
+
+---
+
+### Sesión 7 — Fase 3: generación de cuádruplos con nombres simbólicos
+
+**Prompts utilizados:**
+- *"Vamos con la fase 3"*
+- *"¿Qué es todo lo que vas a hacer?"*
+- *"Si"*
+
+**Lo que hizo la IA:**
+- Diseñó y explicó el plan completo antes de implementar (pilas, cola, puntos neurálgicos)
+- Creó `src/intermediate/`: `quadruple.py`, `operand_stack.py`, `operator_stack.py`, `type_stack.py`, `jump_stack.py`, `quadruple_manager.py`
+- Cambió las gramáticas de `termino` y `exp_aditiva` a **izquierda-recursiva** para obtener asociatividad izquierda correcta (evita que `a - b - c` genere `a - (b - c)`)
+- Generó cuádruplos para: operaciones aritméticas (`+`, `-`, `*`, `/`), relacionales (`>`, `<`, `==`, `!=`), asignaciones, `PRINT`, `UMINUS`
+- Operandos representados como nombres simbólicos (`x`, `t1`, `"hola"`)
+
+**Decisiones tomadas por el autor:** Eligió nombres simbólicos (Opción A) para Fase 3; eligió usar la Opción B (direcciones virtuales) en Fase 4.
+
+---
+
+### Sesión 8 — Fase 4: direcciones virtuales, saltos y funciones
+
+**Prompts utilizados:**
+- *"Ahora vamos con la fase 4 [...] Primero diseñemos"*
+- *"Igual aplica la opción B — Direcciones virtuales [...] y si arranca"*
+
+**Diseño aprobado por el autor antes de implementar:**
+- Mapa de memoria con 11 segmentos (rangos 1000–11999)
+- Traducción inline durante el parsing
+- Protocolo ERA / PARAM / GOSUB / RETURN
+
+**Lo que hizo la IA:**
+- Creó `src/intermediate/virtual_memory.py` con 11 segmentos, tabla de constantes y reset por scope
+- Integró `VirtualMemory` en `SemanticActions` para asignar direcciones al declarar variables y parámetros
+- Implementó saltos condicionales con backpatching usando marcadores (`si_cond`, `sino_inicio`) y `JumpStack`
+- Implementó saltos de ciclo (`mientras_inicio`, `mientras_cond`) con backpatch de `GotoF` + `Goto`
+- Generó cuádruplos de función: `ERA`, `PARAM`, `GOSUB`, `RETURN` (con dirección de retorno), `ENDFUNC`
+- Dividió `programa` en `prog_inicio` + `programa` para hacer backpatch del `Goto` inicial que salta definiciones de funciones
+- Emite `HALT` al final del programa principal
+- Diagnosticó y corrigió el bug donde SLY tomaba `prog_inicio` como símbolo de inicio en lugar de `programa`
+
+**Decisiones tomadas por el autor:** Aprobó el mapa de memoria, el protocolo de llamada y el enfoque inline.
 
 ---
 
@@ -144,10 +158,11 @@ Diagnosticó que las llaves simples generan un **conflicto LR(1) estructural**: 
 | Herramienta | Claude Sonnet 4.6 (Anthropic) vía Claude Code CLI |
 | Modalidad | Asistente activo — lee archivos, aplica cambios, explica decisiones |
 | Código generado por IA | Revisado y aprobado por el autor en cada paso |
-| Decisiones de diseño | Tomadas por el autor; la IA propuso alternativas con sus trade-offs |
-| Prompts registrados | Sí — incluidos en cada sesión de esta sección |
+| Decisiones de diseño | Tomadas por el autor; la IA propuso alternativas con trade-offs |
+| Prompts registrados | Sí — incluidos en cada sesión |
+| Commits | Realizados por el autor |
 
-La definición del lenguaje, la gramática, los tokens y la arquitectura general del compilador fueron diseñados por el autor. La IA se utilizó como herramienta de implementación, diagnóstico y documentación.
+La definición del lenguaje, la gramática, los tokens, la arquitectura general y las decisiones de diseño fueron responsabilidad del autor. La IA se utilizó como herramienta de implementación, diagnóstico y documentación.
 
 ---
 
