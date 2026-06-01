@@ -329,23 +329,159 @@ fin
 
 ---
 
+---
+
+## 7.4.2 Tests de Fase 2 — Análisis Semántico
+
+### Test Case 11: Función con valor de retorno
+
+**Objetivo:** Validar `regresa` con tipo compatible con el tipo de retorno declarado.  
+**Archivo:** `test_11_sem_retorno_valido.pat`  
+**Resultado esperado:** Compilación exitosa.
+
+---
+
+### Test Case 12: Scope local en función
+
+**Objetivo:** Validar que un parámetro con el mismo nombre que una variable global no genera conflicto, y que dentro de la función el parámetro tiene precedencia.  
+**Archivo:** `test_12_sem_scope_local.pat`  
+**Resultado esperado:** Compilación exitosa.
+
+---
+
+### Test Case 13: Operaciones con flotantes
+
+**Objetivo:** Validar función con parámetros y retorno de tipo `flotante`.  
+**Archivo:** `test_13_sem_flotante_valido.pat`  
+**Resultado esperado:** Compilación exitosa.
+
+---
+
+### Test Case 14: Error — Variable duplicada
+
+**Objetivo:** Detectar variable declarada dos veces en el mismo scope.  
+**Archivo:** `test_14_err_variable_duplicada.pat`  
+**Resultado esperado:**
+```text
+[PARSER ERROR] Variable "x" already declared in this scope
+```
+
+---
+
+### Test Case 15: Error — Variable no declarada
+
+**Objetivo:** Detectar uso de variable que no fue declarada.  
+**Archivo:** `test_15_err_variable_no_declarada.pat`  
+**Resultado esperado:**
+```text
+[PARSER ERROR] Variable "z" not declared
+```
+
+---
+
+### Test Case 16: Error — Función duplicada
+
+**Objetivo:** Detectar función declarada dos veces.  
+**Archivo:** `test_16_err_funcion_duplicada.pat`  
+**Resultado esperado:**
+```text
+[PARSER ERROR] Function "foo" already declared
+```
+
+---
+
+### Test Case 17: Error — Conteo de argumentos incorrecto
+
+**Objetivo:** Detectar llamada con número incorrecto de argumentos.  
+**Archivo:** `test_17_err_args_conteo.pat`  
+**Resultado esperado:**
+```text
+[PARSER ERROR] Function "foo" expects 1 argument(s), got 2
+```
+
+---
+
+### Test Case 18: Error — Tipo de argumento incompatible
+
+**Objetivo:** Detectar argumento de tipo incompatible con el parámetro declarado.  
+**Archivo:** `test_18_err_args_tipo.pat`  
+**Resultado esperado:**
+```text
+[PARSER ERROR] Argument 1 in call to "foo": cannot pass flotante as entero
+```
+
+---
+
+### Test Case 19: Error — Tipo de asignación inválido
+
+**Objetivo:** Detectar asignación de `flotante` a variable `entero`.  
+**Archivo:** `test_19_err_tipo_asignacion.pat`  
+**Resultado esperado:**
+```text
+[PARSER ERROR] Cannot assign flotante to entero
+```
+
+---
+
+### Test Case 20: Error — `regresa` con valor en función `nula`
+
+**Objetivo:** Detectar retorno de valor en función de tipo `nula`.  
+**Archivo:** `test_20_err_regresa_en_nula.pat`  
+**Resultado esperado:**
+```text
+[PARSER ERROR] Function "foo" is nula, cannot return a value
+```
+
+---
+
+### Test Case 21: Error — `regresa` fuera de función
+
+**Objetivo:** Detectar uso de `regresa` en el cuerpo principal del programa.  
+**Archivo:** `test_21_err_regresa_global.pat`  
+**Resultado esperado:**
+```text
+[PARSER ERROR] regresa cannot be used outside a function
+```
+
+---
+
+### Test Case 22: Error — Condición no booleana
+
+**Objetivo:** Detectar uso de expresión no booleana en condición de `si`.  
+**Archivo:** `test_22_err_condicion_tipo.pat`  
+**Resultado esperado:**
+```text
+[PARSER ERROR] Condition must be boolean, got entero
+```
+
+---
+
 ## 7.5 Status de Pruebas
 
-| Característica                | Pass |
-|-----------------------------|------|
-| Declaración de variables      | Sí   |
-| Declaración de funciones      | Sí   |
-| Parámetros                    | Sí   |
-| Asignaciones                  | Sí   |
-| Expresiones aritméticas       | Sí   |
-| Expresiones relacionales      | Sí   |
-| Condicionales                 | Sí   |
-| Ciclos                        | Sí   |
-| Llamadas a funciones          | Sí   |
-| Manejo de errores léxicos     | Sí   |
-| Manejo de errores sintácticos | Sí   |
-| Producciones vacías           | Sí   |
-| Precedencia de operadores     | Sí   |
+| # | Archivo | Tipo | Resultado esperado | Estado |
+|---|---------|------|--------------------|--------|
+| 01 | test_01_minimo.pat | Válido | OK | ✓ |
+| 02 | test_02_variables.pat | Válido | OK | ✓ |
+| 03 | test_03_expresiones.pat | Válido | OK | ✓ |
+| 04 | test_04_condicional.pat | Válido | OK | ✓ |
+| 05 | test_05_ciclo.pat | Válido | OK | ✓ |
+| 06 | test_06_funciones.pat | Válido | OK | ✓ |
+| 07 | test_07_llamadas.pat | Válido | OK | ✓ |
+| 08 | test_08_error_lexico.pat | Error léxico | ERROR | ✓ |
+| 09 | test_09_error_sintactico.pat | Error sintáctico | ERROR | ✓ |
+| 10 | test_10_precedencia.pat | Válido | OK | ✓ |
+| 11 | test_11_sem_retorno_valido.pat | Válido semántico | OK | ✓ |
+| 12 | test_12_sem_scope_local.pat | Válido semántico | OK | ✓ |
+| 13 | test_13_sem_flotante_valido.pat | Válido semántico | OK | ✓ |
+| 14 | test_14_err_variable_duplicada.pat | Error semántico | ERROR | ✓ |
+| 15 | test_15_err_variable_no_declarada.pat | Error semántico | ERROR | ✓ |
+| 16 | test_16_err_funcion_duplicada.pat | Error semántico | ERROR | ✓ |
+| 17 | test_17_err_args_conteo.pat | Error semántico | ERROR | ✓ |
+| 18 | test_18_err_args_tipo.pat | Error semántico | ERROR | ✓ |
+| 19 | test_19_err_tipo_asignacion.pat | Error semántico | ERROR | ✓ |
+| 20 | test_20_err_regresa_en_nula.pat | Error semántico | ERROR | ✓ |
+| 21 | test_21_err_regresa_global.pat | Error semántico | ERROR | ✓ |
+| 22 | test_22_err_condicion_tipo.pat | Error semántico | ERROR | ✓ |
 
 ---
 
